@@ -186,22 +186,23 @@ var uState = {
   tokenData: null,
   siswaData: null,
   soalList: [],
-  jawaban: {},        // { soalListIndex: "A" atau "teks uraian" }
+  jawaban: {},        
   currentQ: 0,
   timerInterval: null,
   waktuSisa: 0,
   isOnline: navigator.onLine,
   mapel: '',
   kelas: '',
+  rombelSiswa: '', // <--- PENAMBAHAN: Rombel diambil dari data siswa, bukan token
   isSubmitted: false,
   offlineSaved: false,
-  pgIndices: [],      // indeks soal PG dalam soalList
-  urIndices: [],      // indeks soal Uraian dalam soalList
+  pgIndices: [],      
+  urIndices: [],      
   pgCount: 0,
   urCount: 0,
   bobotPG: 0,
   bobotUr: 0,
-  isSubmitting: false // Mencegah double submit
+  isSubmitting: false 
 };
 
 /* ========================================================
@@ -275,7 +276,7 @@ function showToast(m,t){
 }
 
 /* ========================================================
-   LOGIN
+   LOGIN (DIPERBAIKI: DUKUNGAN ARRAY ROMBEL & TOKEN BERSAMA)
    ======================================================== */
 function doLogin(){
   var nisn=document.getElementById('iNISN').value.trim();
@@ -287,6 +288,7 @@ function doLogin(){
   var dbs=["Kelas 1","Kelas 2","Kelas 3","Kelas 4","Kelas 5"];
   Promise.all(dbs.map(function(k){
     var db=getDB(k);if(!db)return Promise.resolve(null);
+    // Cari token tanpa filter rombel (karena rombel di token sekarang berbentuk Array)
     return db.collection('tokens').where('token','==',token).limit(1).get()
       .then(function(s){return s.empty?null:{data:s.docs[0].data(),kelas:k}})
       .catch(function(){return null});
@@ -294,27 +296,48 @@ function doLogin(){
     var foundToken=null,foundKelas='';
     for(var i=0;i<results.length;i++){if(results[i]){foundToken=results[i].data;foundKelas=results[i].kelas;break}}
     if(!foundToken){btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';showToast('Token tidak ditemukan atau sudah kadaluarsa','error');return}
+    
+    // Validasi Waktu Token
     var now=Date.now();
     var start=foundToken.startTime?foundToken.startTime.toDate().getTime():0;
     var end=foundToken.endTime?foundToken.endTime.toDate().getTime():0;
     if(now<start){showToast('Ujian belum dimulai','warning');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return}
     if(now>end){showToast('Waktu ujian sudah habis','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return}
 
+    // Cari Data Siswa (Hanya berdasarkan NISN, tanpa filter rombel)
     var db=getDB(foundKelas);
-    return db.collection('siswa').where('nisn','==',nisn).where('rombel','==',foundToken.rombel).limit(1).get()
+    return db.collection('siswa').where('nisn','==',nisn).limit(1).get()
       .then(function(snap){
-        if(snap.empty){showToast('NISN tidak terdaftar di rombel ini','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null}
+        if(snap.empty){showToast('NISN tidak terdaftar di kelas ini','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null}
+        
         var siswa=snap.docs[0].data();siswa._id=snap.docs[0].id;
-        // Cek sudah mengerjakan (Cek collection 'nilai' seperti yang ada di Guru)
-        return db.collection('nilai').doc(foundKelas+'_'+foundToken.rombel+'_'+foundToken.mapel+'_'+nisn).get()
+        
+        // Ambil Rombel Asli Siswa
+        var rombelSiswa = siswa.rombel || 'A';
+        // Konversi jika rombel di database siswa berbentuk Array (kompatibilitas)
+        if(Array.isArray(rombelSiswa)) rombelSiswa = rombelSiswa[0] || 'A';
+        
+        // Cek apakah siswa berhak mengerjakan (Rombel siswa harus ada di dalam Array Rombel Token)
+        var tokenRombelArr = Array.isArray(foundToken.rombel) ? foundToken.rombel : [foundToken.rombel];
+        if(tokenRombelArr.indexOf(rombelSiswa) === -1){
+           showToast('Rombel Anda ('+rombelSiswa+') tidak diizinkan untuk token ini','error');
+           btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null;
+        }
+        
+        // Cek sudah mengerjakan atau belum (Gunakan rombel asli siswa)
+        return db.collection('nilai').doc(foundKelas+'_'+rombelSiswa+'_'+foundToken.mapel+'_'+nisn).get()
           .then(function(valDoc){
             if(valDoc.exists){showToast('Anda sudah mengerjakan ujian ini','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null}
-            return {tokenData:foundToken,kelas:foundKelas,siswa:siswa};
+            return {tokenData:foundToken, kelas:foundKelas, siswa:siswa, rombelSiswa:rombelSiswa};
           });
       });
   }).then(function(data){
     if(!data)return;
-    uState.tokenData=data.tokenData;uState.kelas=data.kelas;uState.siswaData=data.siswa;uState.mapel=data.tokenData.mapel;
+    uState.tokenData=data.tokenData; 
+    uState.kelas=data.kelas; 
+    uState.siswaData=data.siswa; 
+    uState.mapel=data.tokenData.mapel;
+    uState.rombelSiswa=data.rombelSiswa; // Simpan rombel asli siswa
     startExam();
   }).catch(function(e){
     console.error(e);btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';showToast('Terjadi kesalahan koneksi','error');
@@ -361,7 +384,7 @@ function startExam(){
       document.getElementById('examPage').classList.remove('hidden');
       document.getElementById('footerSiswaName').textContent=uState.siswaData.nama;
       var mapelName=(MAPEL_LIST.find(function(m){return m.id===uState.mapel})||{}).nama||uState.mapel;
-      document.getElementById('infoMapelHeader').textContent=mapelName+' — '+uState.kelas;
+      document.getElementById('infoMapelHeader').textContent=mapelName+' — '+uState.kelas+' Rombel '+uState.rombelSiswa;
 
       goFullscreen();
       renderQ();
@@ -425,7 +448,7 @@ function renderQ(){
       var ltr=String.fromCharCode(65+i);
       var sel=uState.jawaban[uState.currentQ]===ltr;
       
-      // Deteksi Gambar Opsi (Sama seperti di Admin/Guru)
+      // Deteksi Gambar Opsi
       var imgSrc=(q.optionImages&&q.optionImages[i])?q.optionImages[i]:'';
       if(!imgSrc && o && (o.match(/\.(jpeg|jpg|gif|png|webp|svg)$/i) || o.match(/^https?:\/\/.+\..+/i))){
         imgSrc=o; o='';
@@ -518,11 +541,6 @@ function doFinish(silentMode){
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  /* ======================================================
-     SUSUN PAYLOAD & LANGSUNG UPDATE KE COLLECTION "NILAI"
-     (Agar langsung muncul di dashboard Koreksi Guru)
-     ====================================================== */
-
   // 1. Hitung skor PG otomatis
   var nilaiPG=0;
   uState.pgIndices.forEach(function(si){
@@ -536,7 +554,7 @@ function doFinish(silentMode){
   var nilaiUr=0;
   var nilaiTotal=nilaiPG; 
 
-  // 3. Susun array jawabanPG sesuai urutan soal PG (format: ["B","A","C",...])
+  // 3. Susun array jawabanPG sesuai urutan soal PG
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
     jawabanPGArray.push(uState.jawaban[si]||'');
@@ -548,15 +566,16 @@ function doFinish(silentMode){
     jawabanUrArray.push(uState.jawaban[si]||'');
   });
 
-  // 5. Document ID sama persis dengan format ID yang dipakai menu Koreksi Guru
-  var docId=uState.kelas+'_'+uState.tokenData.rombel+'_'+uState.mapel+'_'+uState.siswaData.nisn;
+  // 5. Document ID menggunakan uState.rombelSiswa (Rombel Asli Siswa)
+  var docId=uState.kelas+'_'+uState.rombelSiswa+'_'+uState.mapel+'_'+uState.siswaData.nisn;
 
   var payload={
     kelas: uState.kelas,
-    rombel: uState.tokenData.rombel,
+    rombel: uState.rombelSiswa, // <--- PERBAIKAN: Gunakan rombel asli siswa
     mapel: uState.mapel,
     nisn: String(uState.siswaData.nisn),
     nama: uState.siswaData.nama,
+    npsn: uState.siswaData.npsn || uState.tokenData.npsn,
     guruNip: uState.tokenData.guruNip,
     guruNama: uState.tokenData.guruNama,
     sekolah: uState.tokenData.sekolah||'',
@@ -590,7 +609,6 @@ function sendToFirebase(payload,docId){
   var db=getDB(uState.kelas);
   var ref=db.collection('nilai').doc(docId);
 
-  // Gunakan {merge: true} agar jika Guru sudah menginput nilai Uraian sebelumnya, tidak tertimpa
   ref.set(payload, {merge: true}).then(function(){
     clearOfflineSave(); 
     try{localStorage.removeItem('sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel);}catch(e){}
