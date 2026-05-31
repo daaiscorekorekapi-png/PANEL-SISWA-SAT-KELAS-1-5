@@ -86,11 +86,13 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
       <div class="space-y-5">
         <div>
           <label class="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Nomor Induk Siswa (NISN)</label>
-          <input type="number" id="iNISN" class="input-field" placeholder="Contoh: 1234567890" onkeydown="if(event.key==='Enter')document.getElementById('iToken').focus()">
+          <!-- Ubah type="number" jadi "tel" agar kompatibel dan tidak membatasi input -->
+          <input type="tel" id="iNISN" class="input-field" placeholder="Contoh: 1234567890" onkeydown="if(event.key==='Enter')document.getElementById('iToken').focus()">
         </div>
         <div>
           <label class="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Token Ujian</label>
-          <input type="text" id="iToken" class="input-field font-mono tracking-widest text-center text-xl uppercase" placeholder="X7Y9Z2A1" maxlength="8" onkeydown="if(event.key==='Enter')doLogin()">
+          <!-- maxlength diturunkan jadi 4 karakter, dan layout difokuskan untuk 4 karakter -->
+          <input type="text" id="iToken" class="input-field font-mono tracking-widest text-center text-xl uppercase" placeholder="A1B2" maxlength="4" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
       </div>
       <button onclick="doLogin()" id="btnLogin" class="btn-primary mt-8 shadow-lg">
@@ -193,7 +195,7 @@ var uState = {
   isOnline: navigator.onLine,
   mapel: '',
   kelas: '',
-  rombelSiswa: '', // <--- PENAMBAHAN: Rombel diambil dari data siswa, bukan token
+  rombelSiswa: '',
   isSubmitted: false,
   offlineSaved: false,
   pgIndices: [],      
@@ -276,19 +278,22 @@ function showToast(m,t){
 }
 
 /* ========================================================
-   LOGIN (DIPERBAIKI: DUKUNGAN ARRAY ROMBEL & TOKEN BERSAMA)
+   LOGIN (DIPERBAIKI: MIN TOKEN 4 KARAKTER)
    ======================================================== */
 function doLogin(){
   var nisn=document.getElementById('iNISN').value.trim();
   var token=document.getElementById('iToken').value.trim().toUpperCase();
+  
   if(!nisn||!token){showToast('NISN dan Token wajib diisi','error');return}
-  if(token.length<6){showToast('Format Token salah','error');return}
+  
+  // PERBAIKAN: Cek minimal 4 karakter (Sesuai dengan panjang token generator guru yang baru)
+  if(token.length<4){showToast('Format Token salah (Min 4 Karakter)','error');return}
+  
   var btn=document.getElementById('btnLogin');btn.disabled=true;btn.innerHTML='<i class="fas fa-circle-notch fa-spin mr-2"></i>Mencari Token...';
 
   var dbs=["Kelas 1","Kelas 2","Kelas 3","Kelas 4","Kelas 5"];
   Promise.all(dbs.map(function(k){
     var db=getDB(k);if(!db)return Promise.resolve(null);
-    // Cari token tanpa filter rombel (karena rombel di token sekarang berbentuk Array)
     return db.collection('tokens').where('token','==',token).limit(1).get()
       .then(function(s){return s.empty?null:{data:s.docs[0].data(),kelas:k}})
       .catch(function(){return null});
@@ -297,34 +302,27 @@ function doLogin(){
     for(var i=0;i<results.length;i++){if(results[i]){foundToken=results[i].data;foundKelas=results[i].kelas;break}}
     if(!foundToken){btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';showToast('Token tidak ditemukan atau sudah kadaluarsa','error');return}
     
-    // Validasi Waktu Token
     var now=Date.now();
     var start=foundToken.startTime?foundToken.startTime.toDate().getTime():0;
     var end=foundToken.endTime?foundToken.endTime.toDate().getTime():0;
     if(now<start){showToast('Ujian belum dimulai','warning');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return}
     if(now>end){showToast('Waktu ujian sudah habis','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return}
 
-    // Cari Data Siswa (Hanya berdasarkan NISN, tanpa filter rombel)
     var db=getDB(foundKelas);
     return db.collection('siswa').where('nisn','==',nisn).limit(1).get()
       .then(function(snap){
         if(snap.empty){showToast('NISN tidak terdaftar di kelas ini','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null}
         
         var siswa=snap.docs[0].data();siswa._id=snap.docs[0].id;
-        
-        // Ambil Rombel Asli Siswa
         var rombelSiswa = siswa.rombel || 'A';
-        // Konversi jika rombel di database siswa berbentuk Array (kompatibilitas)
         if(Array.isArray(rombelSiswa)) rombelSiswa = rombelSiswa[0] || 'A';
         
-        // Cek apakah siswa berhak mengerjakan (Rombel siswa harus ada di dalam Array Rombel Token)
         var tokenRombelArr = Array.isArray(foundToken.rombel) ? foundToken.rombel : [foundToken.rombel];
         if(tokenRombelArr.indexOf(rombelSiswa) === -1){
            showToast('Rombel Anda ('+rombelSiswa+') tidak diizinkan untuk token ini','error');
            btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null;
         }
         
-        // Cek sudah mengerjakan atau belum (Gunakan rombel asli siswa)
         return db.collection('nilai').doc(foundKelas+'_'+rombelSiswa+'_'+foundToken.mapel+'_'+nisn).get()
           .then(function(valDoc){
             if(valDoc.exists){showToast('Anda sudah mengerjakan ujian ini','error');btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';return null}
@@ -337,7 +335,7 @@ function doLogin(){
     uState.kelas=data.kelas; 
     uState.siswaData=data.siswa; 
     uState.mapel=data.tokenData.mapel;
-    uState.rombelSiswa=data.rombelSiswa; // Simpan rombel asli siswa
+    uState.rombelSiswa=data.rombelSiswa;
     startExam();
   }).catch(function(e){
     console.error(e);btn.disabled=false;btn.innerHTML='<i class="fas fa-sign-in-alt mr-2"></i>MASUK UJIAN';showToast('Terjadi kesalahan koneksi','error');
@@ -345,7 +343,7 @@ function doLogin(){
 }
 
 /* ========================================================
-   MULAI UJIAN — AMBIL SOAL DARI DATABASE GURU
+   MULAI UJIAN
    ======================================================== */
 function startExam(){
   var db=getDB(uState.kelas);if(!db){showToast('Database Error','error');return}
@@ -365,7 +363,6 @@ function startExam(){
       });
 
       uState.soalList=docs;
-
       uState.pgIndices=[];uState.urIndices=[];
       docs.forEach(function(q,i){
         if(q.type==='pg')uState.pgIndices.push(i);
@@ -413,7 +410,7 @@ function updateTimerUI(){
 }
 
 /* ========================================================
-   RENDER SOAL (FIX GAMBAR)
+   RENDER SOAL
    ======================================================== */
 function renderQ(){
   var q=uState.soalList[uState.currentQ],total=uState.soalList.length;
@@ -433,22 +430,18 @@ function renderQ(){
   }
   document.getElementById('navDots').innerHTML=dh;
 
-  // Gambar Soal Utama
   var iw=document.getElementById('qImageWrap'),ie=document.getElementById('qImage');
   if(q.imageUrl){ie.src=q.imageUrl;ie.style.display='';iw.classList.remove('hidden')}
   else{iw.classList.add('hidden');ie.style.display='none';}
 
-  // Teks soal
   document.getElementById('qText').innerHTML='<span class="text-kopAccent font-bold mr-2">'+(uState.currentQ+1)+'.</span>'+(q.text||'');
 
-  // Opsi Jawaban
   var oe=document.getElementById('qOptions');
   if(q.type==='pg'&&q.options){
     var h='';q.options.forEach(function(o,i){
       var ltr=String.fromCharCode(65+i);
       var sel=uState.jawaban[uState.currentQ]===ltr;
       
-      // Deteksi Gambar Opsi
       var imgSrc=(q.optionImages&&q.optionImages[i])?q.optionImages[i]:'';
       if(!imgSrc && o && (o.match(/\.(jpeg|jpg|gif|png|webp|svg)$/i) || o.match(/^https?:\/\/.+\..+/i))){
         imgSrc=o; o='';
@@ -507,7 +500,7 @@ function saveProgressLocally(){
 }
 
 /* ========================================================
-   SELESAI & KIRIM JAWABAN LANGSUNG KE NILAI GURU (FIREBASE)
+   SELESAI & KIRIM JAWABAN
    ======================================================== */
 function autoFinish(){if(!uState.isSubmitted){showToast('Waktu Habis! Mengirim jawaban otomatis...','warning');doFinish()}}
 
@@ -541,7 +534,6 @@ function doFinish(silentMode){
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  // 1. Hitung skor PG otomatis
   var nilaiPG=0;
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
@@ -550,28 +542,24 @@ function doFinish(silentMode){
   });
   nilaiPG=Math.min(nilaiPG,100);
 
-  // 2. Nilai uraian = 0 (menunggu guru koreksi manual)
   var nilaiUr=0;
   var nilaiTotal=nilaiPG; 
 
-  // 3. Susun array jawabanPG sesuai urutan soal PG
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
     jawabanPGArray.push(uState.jawaban[si]||'');
   });
 
-  // 4. Susun array jawabanUraian sesuai urutan soal Uraian
   var jawabanUrArray=[];
   uState.urIndices.forEach(function(si){
     jawabanUrArray.push(uState.jawaban[si]||'');
   });
 
-  // 5. Document ID menggunakan uState.rombelSiswa (Rombel Asli Siswa)
   var docId=uState.kelas+'_'+uState.rombelSiswa+'_'+uState.mapel+'_'+uState.siswaData.nisn;
 
   var payload={
     kelas: uState.kelas,
-    rombel: uState.rombelSiswa, // <--- PERBAIKAN: Gunakan rombel asli siswa
+    rombel: uState.rombelSiswa, 
     mapel: uState.mapel,
     nisn: String(uState.siswaData.nisn),
     nama: uState.siswaData.nama,
