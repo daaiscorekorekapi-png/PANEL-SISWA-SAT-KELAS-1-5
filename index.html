@@ -86,12 +86,10 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
       <div class="space-y-5">
         <div>
           <label class="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Nomor Induk Siswa (NISN)</label>
-          <!-- Ubah type="number" jadi "tel" agar kompatibel dan tidak membatasi input -->
           <input type="tel" id="iNISN" class="input-field" placeholder="Contoh: 1234567890" onkeydown="if(event.key==='Enter')document.getElementById('iToken').focus()">
         </div>
         <div>
           <label class="text-xs text-muted font-bold uppercase tracking-wider block mb-2">Token Ujian</label>
-          <!-- maxlength diturunkan jadi 4 karakter, dan layout difokuskan untuk 4 karakter -->
           <input type="text" id="iToken" class="input-field font-mono tracking-widest text-center text-xl uppercase" placeholder="A1B2" maxlength="4" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
       </div>
@@ -278,15 +276,13 @@ function showToast(m,t){
 }
 
 /* ========================================================
-   LOGIN (DIPERBAIKI: MIN TOKEN 4 KARAKTER)
+   LOGIN
    ======================================================== */
 function doLogin(){
   var nisn=document.getElementById('iNISN').value.trim();
   var token=document.getElementById('iToken').value.trim().toUpperCase();
   
   if(!nisn||!token){showToast('NISN dan Token wajib diisi','error');return}
-  
-  // PERBAIKAN: Cek minimal 4 karakter (Sesuai dengan panjang token generator guru yang baru)
   if(token.length<4){showToast('Format Token salah (Min 4 Karakter)','error');return}
   
   var btn=document.getElementById('btnLogin');btn.disabled=true;btn.innerHTML='<i class="fas fa-circle-notch fa-spin mr-2"></i>Mencari Token...';
@@ -371,6 +367,8 @@ function startExam(){
       
       uState.pgCount=uState.pgIndices.length;
       uState.urCount=uState.urIndices.length;
+      
+      // BOBOT DIPAKSA MAX 100 PER TIPE SOAL
       uState.bobotPG=uState.pgCount?Math.round(100/uState.pgCount):0;
       uState.bobotUr=uState.urCount?Math.round(100/uState.urCount):0;
 
@@ -534,24 +532,20 @@ function doFinish(silentMode){
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  // --- PERHITUNGAN NILAI ---
+  // --- PERHITUNGAN NILAI PG (MAKS 100) ---
   var nilaiPG=0;
-  // Hitung Nilai PG berdasarkan kunci jawaban
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
     var kunci=uState.soalList[si].answer||'';
-    // Bandingkan jawaban siswa dengan kunci (case sensitive/insensitive sesuaikan kebutuhan, di sini exact match)
     if(jawab===kunci) nilaiPG+=uState.bobotPG;
   });
-  // Pastikan nilai PG tidak melebihi 100 jika ada kesalahan pembagian bulat
   nilaiPG=Math.min(nilaiPG,100);
 
-  var nilaiUr=0; // Nilai uraian default 0 (menunggu koreksi guru)
+  var nilaiUr=0; 
   
-  // --- PERBAIKAN UTAMA: JUMLAHKAN NILAI ---
-  var nilaiTotal = nilaiPG + nilaiUr; 
+  // YANG DISIMPAN KE DB SUDAH DIBAGI 2 (UNTUK RAPOR)
+  var nilaiTotal = Math.round((nilaiPG + nilaiUr) / 2);
 
-  // Siapkan array jawaban agar rapi dan tidak undefined
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
     jawabanPGArray.push(uState.jawaban[si]||'');
@@ -577,12 +571,12 @@ function doFinish(silentMode){
     
     nilaiPG: nilaiPG,
     nilaiUr: nilaiUr,
-    nilaiTotal: nilaiTotal, // Sekarang berisi penjumlahan yang benar
+    nilaiTotal: nilaiTotal, 
     
     pgCount: uState.pgCount,
     urCount: uState.urCount,
     bobotPG: uState.bobotPG,
-    bobotUr: uState.bobotUr,
+    bobotUr: uState.bobotUr, 
     
     jawabanPG: jawabanPGArray,      
     jawabanUr: jawabanUrArray,      
@@ -596,8 +590,7 @@ function doFinish(silentMode){
     sendToFirebase(payload,docId);
   }else{
     saveOffline(payload,docId);
-    // Panggil showResult dengan nilai yang sudah benar
-    showResult(nilaiPG,nilaiUr);
+    showResult(nilaiPG,nilaiUr); // Lewatkan PG dan Ur asli ke tampilan
   }
 }
 
@@ -608,8 +601,7 @@ function sendToFirebase(payload,docId){
   ref.set(payload, {merge: true}).then(function(){
     clearOfflineSave(); 
     try{localStorage.removeItem('sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel);}catch(e){}
-    // Pastikan melempar nilai yang benar ke hasil
-    showResult(payload.nilaiPG,payload.nilaiUr);
+    showResult(payload.nilaiPG,payload.nilaiUr); // Lewatkan PG dan Ur asli ke tampilan
   }).catch(function(e){
     console.error(e);showToast('Gagal mengirim, menyimpan lokal...','warning');
     saveOffline(payload,docId);showResult(payload.nilaiPG,payload.nilaiUr);
@@ -645,12 +637,17 @@ function checkPending(){
 function showSaveBar(){if(document.getElementById('saveBar'))return;var b=document.createElement('div');b.id='saveBar';b.className='save-bar';b.innerHTML='<i class="fas fa-exclamation-triangle mr-2"></i>Jawaban tersimpan offline. Cari sinyal internet!';document.body.appendChild(b)}
 function hideSaveBar(){var b=document.getElementById('saveBar');if(b)b.remove()}
 
+/* ========================================================
+   TAMPILAN HASIL AKHIR (DITAMPILKAN PENJUMLAHAN UTUH AGAR SISWA TIDAK PANIK)
+   ======================================================== */
 function showResult(pg, ur){
   document.getElementById('examPage').classList.add('hidden');
   document.getElementById('cheatOverlay').classList.add('hidden');
   try{if(document.fullscreenElement)document.exitFullscreen();}catch(e){}
   
-  var total = pg + ur;
+  // Hitung total untuk ditampilkan di layar siswa (PENJUMLAHAN UTUH)
+  var tampilanTotal = pg + ur;
+  
   var h='<div class="glass rounded-2xl p-8 text-center result-card">'
     +'<div class="w-20 h-20 rounded-full bg-gradient-to-br from-success/30 to-success/10 border-2 border-success flex items-center justify-center mx-auto mb-5 shadow-lg">'
     +'<i class="fas fa-check-double text-success text-3xl"></i></div>'
@@ -658,10 +655,22 @@ function showResult(pg, ur){
     +'<p class="text-muted text-sm mb-6">Jawaban berhasil dikirim ke Guru.</p>'
     +'<div class="bg-dark/50 rounded-xl p-5 border border-border mb-6">'
     +'<div class="text-xs text-muted uppercase font-bold mb-3 tracking-wider">Skor Sementara</div>'
-    +'<div class="text-5xl font-black text-kopAccent mb-2">'+total+'</div>'
-    +'<div class="text-xs text-muted">(PG: '+pg+' + Uraian: Menunggu Guru)</div></div>'
-    +'<div class="p-3 rounded-lg bg-info/10 border border-info/30 text-info text-xs text-left">'
-    +'<i class="fas fa-info-circle mr-1"></i> Nilai Uraian akan diperbarui oleh Guru setelah dikoreksi.</div></div>';
+    +'<div class="text-5xl font-black text-kopAccent mb-4">'+tampilanTotal+'</div>'
+    
+    // Rincian Skor
+    +'<div class="grid grid-cols-2 gap-3 text-left">'
+    +'<div class="bg-info/10 p-2.5 rounded-lg border border-info/30">'
+    +'<div class="text-[10px] text-info font-bold uppercase">Skor PG (Maks 100)</div>'
+    +'<div class="text-info font-bold text-lg">'+pg+'</div></div>'
+    +'<div class="bg-warning/10 p-2.5 rounded-lg border border-warning/30">'
+    +'<div class="text-[10px] text-warning font-bold uppercase">Skor Uraian (Maks 100)</div>'
+    +'<div class="text-warning font-bold text-lg">'+ur+' <span class="text-xs font-normal">(Dikoreksi Guru)</span></div></div>'
+    +'</div>'
+    
+    // Info Tambahan
+    +'<div class="mt-4 pt-3 border-t border-border text-[10px] text-muted text-left leading-relaxed">'
+    +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir akan dihitung oleh sistem setelah Guru selesai mengoreksi jawaban uraian Anda.'
+    +'</div></div></div>';
     
   document.getElementById('resultContent').innerHTML=h;
   document.getElementById('resultPage').classList.remove('hidden');
