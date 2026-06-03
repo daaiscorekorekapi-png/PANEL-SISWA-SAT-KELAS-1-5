@@ -502,6 +502,9 @@ function saveProgressLocally(){
 /* ========================================================
    SELESAI & KIRIM JAWABAN
    ======================================================== */
+/* ========================================================
+   SELESAI & KIRIM JAWABAN (REVISI)
+   ======================================================== */
 function autoFinish(){if(!uState.isSubmitted){showToast('Waktu Habis! Mengirim jawaban otomatis...','warning');doFinish()}}
 
 function confirmFinish(){
@@ -534,17 +537,24 @@ function doFinish(silentMode){
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
+  // --- PERHITUNGAN NILAI ---
   var nilaiPG=0;
+  // Hitung Nilai PG berdasarkan kunci jawaban
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
     var kunci=uState.soalList[si].answer||'';
+    // Bandingkan jawaban siswa dengan kunci (case sensitive/insensitive sesuaikan kebutuhan, di sini exact match)
     if(jawab===kunci) nilaiPG+=uState.bobotPG;
   });
+  // Pastikan nilai PG tidak melebihi 100 jika ada kesalahan pembagian bulat
   nilaiPG=Math.min(nilaiPG,100);
 
-  var nilaiUr=0;
-  var nilaiTotal=nilaiPG; 
+  var nilaiUr=0; // Nilai uraian default 0 (menunggu koreksi guru)
+  
+  // --- PERBAIKAN UTAMA: JUMLAHKAN NILAI ---
+  var nilaiTotal = nilaiPG + nilaiUr; 
 
+  // Siapkan array jawaban agar rapi dan tidak undefined
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
     jawabanPGArray.push(uState.jawaban[si]||'');
@@ -570,7 +580,7 @@ function doFinish(silentMode){
     
     nilaiPG: nilaiPG,
     nilaiUr: nilaiUr,
-    nilaiTotal: nilaiTotal,
+    nilaiTotal: nilaiTotal, // Sekarang berisi penjumlahan yang benar
     
     pgCount: uState.pgCount,
     urCount: uState.urCount,
@@ -589,6 +599,7 @@ function doFinish(silentMode){
     sendToFirebase(payload,docId);
   }else{
     saveOffline(payload,docId);
+    // Panggil showResult dengan nilai yang sudah benar
     showResult(nilaiPG,nilaiUr);
   }
 }
@@ -600,6 +611,7 @@ function sendToFirebase(payload,docId){
   ref.set(payload, {merge: true}).then(function(){
     clearOfflineSave(); 
     try{localStorage.removeItem('sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel);}catch(e){}
+    // Pastikan melempar nilai yang benar ke hasil
     showResult(payload.nilaiPG,payload.nilaiUr);
   }).catch(function(e){
     console.error(e);showToast('Gagal mengirim, menyimpan lokal...','warning');
