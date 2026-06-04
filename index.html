@@ -53,6 +53,20 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
 .progress-ring-fg{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;transform:rotate(-90deg);transform-origin:50% 50%}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spinner{animation:spin 1s linear infinite}
+
+/* PERBAIKAN CSS HASIL UNTUK HP */
+#resultPage {
+  z-index: 9999 !important; 
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 25, 35, 0.95);
+  backdrop-filter: blur(10px);
+}
+#resultPage.hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -173,9 +187,9 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
   </footer>
 </div>
 
-<!-- HASIL -->
-<div id="resultPage" class="hidden fixed inset-0 bg-dark/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-  <div id="resultContent" class="w-full max-w-md my-8"></div>
+<!-- HASIL (Z-INDEX DIATUR TINGGI) -->
+<div id="resultPage" class="hidden">
+  <div id="resultContent" class="w-full max-w-md"></div>
 </div>
 
 <script>
@@ -638,7 +652,7 @@ function showSaveBar(){if(document.getElementById('saveBar'))return;var b=docume
 function hideSaveBar(){var b=document.getElementById('saveBar');if(b)b.remove()}
 
 /* ========================================================
-   TAMPILAN HASIL AKHIR (DITAMPILKAN PENJUMLAHAN UTUH AGAR SISWA TIDAK PANIK)
+   TAMPILAN HASIL AKHIR (RESPONSIF HP)
    ======================================================== */
 function showResult(pg, ur){
   document.getElementById('examPage').classList.add('hidden');
@@ -648,29 +662,42 @@ function showResult(pg, ur){
   // Hitung total untuk ditampilkan di layar siswa (PENJUMLAHAN UTUH)
   var tampilanTotal = pg + ur;
   
-  var h='<div class="glass rounded-2xl p-8 text-center result-card">'
-    +'<div class="w-20 h-20 rounded-full bg-gradient-to-br from-success/30 to-success/10 border-2 border-success flex items-center justify-center mx-auto mb-5 shadow-lg">'
+  // HTML Hasil - Desain rapi untuk HP
+  var h='<div class="glass rounded-2xl p-6 md:p-8 text-center result-card relative overflow-hidden">'
+  
+    // Icon Header
+    +'<div class="w-20 h-20 rounded-full bg-gradient-to-br from-success/30 to-success/10 border-2 border-success flex items-center justify-center mx-auto mb-4 shadow-lg">'
     +'<i class="fas fa-check-double text-success text-3xl"></i></div>'
-    +'<h2 class="text-light font-bold text-xl mb-2">Ujian Selesai!</h2>'
-    +'<p class="text-muted text-sm mb-6">Jawaban berhasil dikirim ke Guru.</p>'
-    +'<div class="bg-dark/50 rounded-xl p-5 border border-border mb-6">'
-    +'<div class="text-xs text-muted uppercase font-bold mb-3 tracking-wider">Skor Sementara</div>'
-    +'<div class="text-5xl font-black text-kopAccent mb-4">'+tampilanTotal+'</div>'
     
-    // Rincian Skor
-    +'<div class="grid grid-cols-2 gap-3 text-left">'
-    +'<div class="bg-info/10 p-2.5 rounded-lg border border-info/30">'
-    +'<div class="text-[10px] text-info font-bold uppercase">Skor PG (Maks 100)</div>'
-    +'<div class="text-info font-bold text-lg">'+pg+'</div></div>'
-    +'<div class="bg-warning/10 p-2.5 rounded-lg border border-warning/30">'
-    +'<div class="text-[10px] text-warning font-bold uppercase">Skor Uraian (Maks 100)</div>'
-    +'<div class="text-warning font-bold text-lg">'+ur+' <span class="text-xs font-normal">(Dikoreksi Guru)</span></div></div>'
+    +'<h2 class="text-light font-bold text-xl md:text-2xl mb-1">Ujian Selesai!</h2>'
+    +'<p class="text-muted text-xs md:text-sm mb-6">Jawaban berhasil dikirim ke Guru.</p>'
+    
+    // Kotak Nilai Utama
+    +'<div class="bg-dark/40 rounded-xl p-4 border border-kopAccent/30 mb-6">'
+    +'<div class="text-[10px] text-muted uppercase font-bold tracking-widest mb-1">Skor Sementara (Akumulasi)</div>'
+    +'<div class="text-5xl md:text-6xl font-black text-kopAccent mb-2 drop-shadow-md">'+tampilanTotal+'</div>'
+    +'</div>'
+    
+    // Rincian Skor (Grid Responsif)
+    +'<div class="grid grid-cols-2 gap-3 text-left mb-6">'
+    // Skor PG
+    +'<div class="bg-info/10 p-3 rounded-lg border border-info/30 flex flex-col justify-between">'
+    +'<div class="text-[10px] text-info font-bold uppercase flex items-center gap-1"><i class="fas fa-list-ol"></i> Pilihan Ganda</div>'
+    +'<div class="text-2xl font-bold text-info mt-1">'+pg+'</div>'
+    +'<div class="text-[9px] text-info/60 mt-1">Maks: 100</div>'
+    +'</div>'
+    // Skor Uraian
+    +'<div class="bg-warning/10 p-3 rounded-lg border border-warning/30 flex flex-col justify-between">'
+    +'<div class="text-[10px] text-warning font-bold uppercase flex items-center gap-1"><i class="fas fa-pen-nib"></i> Uraian</div>'
+    +'<div class="text-2xl font-bold text-warning mt-1 flex items-center gap-2">'+ur+' <span class="text-xs font-normal text-muted">(Menunggu Guru)</span></div>'
+    +'<div class="text-[9px] text-warning/60 mt-1">Maks: 100</div>'
+    +'</div>'
     +'</div>'
     
     // Info Tambahan
-    +'<div class="mt-4 pt-3 border-t border-border text-[10px] text-muted text-left leading-relaxed">'
-    +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir akan dihitung oleh sistem setelah Guru selesai mengoreksi jawaban uraian Anda.'
-    +'</div></div></div>';
+    +'<div class="mt-2 pt-4 border-t border-border text-[10px] text-muted text-center leading-relaxed bg-dark/20 rounded p-2">'
+    +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir rapor akan muncul setelah Guru mengoreksi jawaban uraian.'
+    +'</div></div>';
     
   document.getElementById('resultContent').innerHTML=h;
   document.getElementById('resultPage').classList.remove('hidden');
