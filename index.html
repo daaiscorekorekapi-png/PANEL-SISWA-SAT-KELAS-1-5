@@ -65,6 +65,7 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
   padding: 16px;
   background: rgba(15, 25, 35, 0.95);
   backdrop-filter: blur(10px);
+  overflow-y: auto;
 }
 #resultPage.hidden { display: none !important; }
 </style>
@@ -546,19 +547,20 @@ function doFinish(silentMode){
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  // --- PERHITUNGAN NILAI PG (MAKS 100) ---
+  // --- PERHITUNGAN NILAI ---
   var nilaiPG=0;
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
     var kunci=uState.soalList[si].answer||'';
     if(jawab===kunci) nilaiPG+=uState.bobotPG;
   });
+  // Nilai PG Murni (0-100)
   nilaiPG=Math.min(nilaiPG,100);
 
   var nilaiUr=0; 
   
-  // YANG DISIMPAN KE DB SUDAH DIBAGI 2 (UNTUK RAPOR)
-  var nilaiTotal = Math.round((nilaiPG + nilaiUr) / 2);
+  // Nilai Akhir untuk Database (DIBAGI 2 sesuai permintaan sistem sebelumnya)
+  var nilaiDB = Math.round((nilaiPG + nilaiUr) / 2);
 
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
@@ -583,9 +585,9 @@ function doFinish(silentMode){
     guruNama: uState.tokenData.guruNama,
     sekolah: uState.tokenData.sekolah||'',
     
-    nilaiPG: nilaiPG,
-    nilaiUr: nilaiUr,
-    nilaiTotal: nilaiTotal, 
+    nilaiPG: nilaiPG,        // Simpan PG Murni (untuk referensi)
+    nilaiUr: nilaiUr,        // Simpan Ur Murni
+    nilaiTotal: nilaiDB,     // Nilai Akhir (Rata-rata) untuk Rapor
     
     pgCount: uState.pgCount,
     urCount: uState.urCount,
@@ -604,7 +606,8 @@ function doFinish(silentMode){
     sendToFirebase(payload,docId);
   }else{
     saveOffline(payload,docId);
-    showResult(nilaiPG,nilaiUr); // Lewatkan PG dan Ur asli ke tampilan
+    // Kirim Nilai MURNI ke Tampilan Siswa
+    showResult(nilaiPG, nilaiUr); 
   }
 }
 
@@ -615,10 +618,12 @@ function sendToFirebase(payload,docId){
   ref.set(payload, {merge: true}).then(function(){
     clearOfflineSave(); 
     try{localStorage.removeItem('sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel);}catch(e){}
-    showResult(payload.nilaiPG,payload.nilaiUr); // Lewatkan PG dan Ur asli ke tampilan
+    // Kirim Nilai MURNI ke Tampilan Siswa
+    showResult(payload.nilaiPG, payload.nilaiUr);
   }).catch(function(e){
     console.error(e);showToast('Gagal mengirim, menyimpan lokal...','warning');
-    saveOffline(payload,docId);showResult(payload.nilaiPG,payload.nilaiUr);
+    saveOffline(payload,docId);
+    showResult(payload.nilaiPG, payload.nilaiUr);
   });
 }
 
@@ -659,8 +664,7 @@ function showResult(pg, ur){
   document.getElementById('cheatOverlay').classList.add('hidden');
   try{if(document.fullscreenElement)document.exitFullscreen();}catch(e){}
   
-  // Hitung total untuk ditampilkan di layar siswa (PENJUMLAHAN UTUH)
-  var tampilanTotal = pg + ur;
+  // Nilai PG dan UR yang diterima sudah MURNI (0-100)
   
   // HTML Hasil - Desain rapi untuk HP
   var h='<div class="glass rounded-2xl p-6 md:p-8 text-center result-card relative overflow-hidden">'
@@ -672,31 +676,33 @@ function showResult(pg, ur){
     +'<h2 class="text-light font-bold text-xl md:text-2xl mb-1">Ujian Selesai!</h2>'
     +'<p class="text-muted text-xs md:text-sm mb-6">Jawaban berhasil dikirim ke Guru.</p>'
     
-    // Kotak Nilai Utama
+    // Kotak Nilai Utama (Total Akumulasi Sementara)
+    // Kita tampilkan jumlah PG + UR (Max 200) agar siswa melihat "Total Poin Mentah"
     +'<div class="bg-dark/40 rounded-xl p-4 border border-kopAccent/30 mb-6">'
-    +'<div class="text-[10px] text-muted uppercase font-bold tracking-widest mb-1">Skor Sementara (Akumulasi)</div>'
-    +'<div class="text-5xl md:text-6xl font-black text-kopAccent mb-2 drop-shadow-md">'+tampilanTotal+'</div>'
+    +'<div class="text-[10px] text-muted uppercase font-bold tracking-widest mb-1">Total Poin Sementara</div>'
+    +'<div class="text-4xl md:text-5xl font-black text-kopAccent mb-1 drop-shadow-md">'+(pg+ur)+'</div>'
+    +'<div class="text-[9px] text-muted/60">(PG: '+pg+' + Uraian: '+ur+')</div>'
     +'</div>'
     
     // Rincian Skor (Grid Responsif)
     +'<div class="grid grid-cols-2 gap-3 text-left mb-6">'
-    // Skor PG
+    // Skor PG (MURNI 0-100)
     +'<div class="bg-info/10 p-3 rounded-lg border border-info/30 flex flex-col justify-between">'
     +'<div class="text-[10px] text-info font-bold uppercase flex items-center gap-1"><i class="fas fa-list-ol"></i> Pilihan Ganda</div>'
-    +'<div class="text-2xl font-bold text-info mt-1">'+pg+'</div>'
-    +'<div class="text-[9px] text-info/60 mt-1">Maks: 100</div>'
+    +'<div class="text-3xl font-bold text-info mt-1">'+pg+'</div>'
+    +'<div class="text-[9px] text-info/60 mt-1">Skor Otomatis</div>'
     +'</div>'
-    // Skor Uraian
+    // Skor Uraian (MURNI 0-100)
     +'<div class="bg-warning/10 p-3 rounded-lg border border-warning/30 flex flex-col justify-between">'
     +'<div class="text-[10px] text-warning font-bold uppercase flex items-center gap-1"><i class="fas fa-pen-nib"></i> Uraian</div>'
-    +'<div class="text-2xl font-bold text-warning mt-1 flex items-center gap-2">'+ur+' <span class="text-xs font-normal text-muted">(Menunggu Guru)</span></div>'
-    +'<div class="text-[9px] text-warning/60 mt-1">Maks: 100</div>'
+    +'<div class="text-3xl font-bold text-warning mt-1 flex items-center gap-2">'+ur+' <span class="text-xs font-normal text-muted">(Koreksi Guru)</span></div>'
+    +'<div class="text-[9px] text-warning/60 mt-1">Menunggu Koreksi</div>'
     +'</div>'
     +'</div>'
     
     // Info Tambahan
     +'<div class="mt-2 pt-4 border-t border-border text-[10px] text-muted text-center leading-relaxed bg-dark/20 rounded p-2">'
-    +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir rapor akan muncul setelah Guru mengoreksi jawaban uraian.'
+    +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir rapor adalah rata-rata dari kedua skor di atas.'
     +'</div></div>';
     
   document.getElementById('resultContent').innerHTML=h;
