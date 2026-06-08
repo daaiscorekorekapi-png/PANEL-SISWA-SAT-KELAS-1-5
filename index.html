@@ -534,7 +534,7 @@ function saveProgressLocally(){
 }
 
 /* ========================================================
-   SELESAI & KIRIM JAWABAN
+   SELESAI & KIRIM JAWABAN (PERBAIKAN: ANTI CASE SENSITIVE)
    ======================================================== */
 function autoFinish(){if(!uState.isSubmitted){showToast('Waktu Habis! Mengirim jawaban otomatis...','warning');doFinish()}}
 
@@ -556,33 +556,50 @@ function confirmFinish(){
 function closeFinishModal(){document.getElementById('resultPage').classList.add('hidden')}
 
 function doFinish(silentMode){
+  // Cegah double submit
   if(uState.isSubmitted || uState.isSubmitting) return;
+  
+  // Jika silentMode (misal refresh halaman), kita izinkan jalan tanpa loading UI berlebih
   uState.isSubmitting = true; 
 
+  // Tampilkan loading di tombol jika bukan silent mode
   if(!silentMode){
     var btns = document.querySelectorAll('#resultPage button');
     if(btns.length > 1) btns[1].innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> MENGIRIM...';
-    else document.getElementById('btnFinish').innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> MENGIRIM...';
+    else if(document.getElementById('btnFinish')) document.getElementById('btnFinish').innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> MENGIRIM...';
   }
 
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  // --- PERHITUNGAN NILAI ---
+  // --- PERHITUNGAN NILAI (VERSI PERBAIKAN: TIDAK CASE SENSITIVE) ---
   var nilaiPG=0;
+  var pgBenarCount = 0;
+  
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
     var kunci=uState.soalList[si].answer||'';
-    if(jawab===kunci) nilaiPG+=uState.bobotPG;
+    
+    // PERBAIKAN: Paksa huruf besar dan hapus spasi sebelum bandingkan
+    // Contoh: jawab='a', kunci='A' -> akan dianggap BENAR
+    if(jawab.toString().toUpperCase().trim() === kunci.toString().toUpperCase().trim()) {
+      nilaiPG+=uState.bobotPG;
+      pgBenarCount++;
+    }
   });
+  
+  // Pastikan nilai PG maksimal 100
   nilaiPG=Math.min(nilaiPG,100);
 
   var nilaiUr=0; 
   
+  // Nilai Akhir = Rata-rata (PG + Ur) / 2
   var nilaiDB = Math.round((nilaiPG + nilaiUr) / 2);
 
+  // Siapkan array jawaban untuk disimpan ke Database
   var jawabanPGArray=[];
   uState.pgIndices.forEach(function(si){
+    // Simpan jawaban asli siswa
     jawabanPGArray.push(uState.jawaban[si]||'');
   });
 
