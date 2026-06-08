@@ -47,6 +47,8 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
 .progress-ring-bg{stroke:#2a3f5f;fill:none;stroke-width:6}
 .progress-ring-fg{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;transform:rotate(-90deg);transform-origin:50% 50%}
 .soal-text {white-space: pre-wrap; word-wrap: break-word;}
+.soal-image {max-height: 300px; max-width: 100%; object-fit: contain; border-radius: 12px; margin: 16px 0; border: 1px solid #2a3f5f; background: #0f1923;}
+.opt-image {max-height: 120px; max-width: 100%; object-fit: contain; border-radius: 8px; border: 1px solid #2a3f5f; background: #0f1923; margin-top: 8px;}
 #resultPage {z-index: 9999 !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 25, 35, 0.95); backdrop-filter: blur(10px); overflow-y: auto;}
 #resultPage.hidden { display: none !important; }
 </style>
@@ -95,6 +97,9 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
       <div id="questionCard" class="bg-card border border-border rounded-2xl p-5 md:p-8 mb-5 shadow-2xl relative overflow-hidden">
         <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-kopAccent to-yellow-600"></div>
         <p id="qText" class="soal-text text-light text-lg md:text-xl font-semibold leading-relaxed mb-7 pl-3"></p>
+        <div id="qImageContainer" class="pl-3 mb-7 hidden">
+          <img id="qImage" class="soal-image" src="" alt="Gambar Soal">
+        </div>
         <div id="qOptions" class="grid gap-3"></div>
       </div>
       <div class="flex justify-between items-center gap-3">
@@ -116,8 +121,6 @@ var uState = {
   timerInterval: null, waktuSisa: 0, isOnline: navigator.onLine,
   mapel: '', kelas: '', rombelSiswa: '', isSubmitted: false, offlineSaved: false,
   pgIndices: [], urIndices: [], pgCount: 0, urCount: 0, isSubmitting: false,
-  
-  // PENYIMPANAN BERDASARKAN ID SOAL (100% TIDAK AKAN TERTUKAR)
   jawabanById: {} 
 };
 
@@ -179,16 +182,15 @@ function startExam(){
     snap.forEach(function(d){ var dt = d.data(); dt.docId = d.id; docs.push(dt); });
     if(!docs.length){showToast('Belum ada soal. Hubungi Guru.','error');return}
 
-    // SORTING PERSIS SAMA DENGAN DASHBOARD GURU
     docs.sort(function(a,b){
       var ta = a.createdAt ? (a.createdAt.seconds || 0) : 0;
       var tb = b.createdAt ? (b.createdAt.seconds || 0) : 0;
-      return ta - tb; // Ascending (Terlama ke Terbaru)
+      return ta - tb; 
     });
     docs.sort(function(a,b){
       var ta = a.type === 'pg' ? 0 : 1;
       var tb = b.type === 'pg' ? 0 : 1;
-      return ta - tb; // PG di atas, Uraian di bawah
+      return ta - tb; 
     });
 
     uState.soalList=docs; uState.pgIndices=[]; uState.urIndices=[];
@@ -222,9 +224,37 @@ function renderQ(){
   }
   document.getElementById('navDots').innerHTML=dh;
   document.getElementById('qText').innerHTML = '<span class="text-kopAccent font-bold mr-2">'+(uState.currentQ+1)+'.</span>'+(q.text||'');
+  
+  // TAMPILKAN GAMBAR SOAL JIKA ADA
+  var qImgContainer = document.getElementById('qImageContainer');
+  var qImg = document.getElementById('qImage');
+  if(q.imageUrl && q.imageUrl.trim() !== ''){
+    qImg.src = q.imageUrl;
+    qImgContainer.classList.remove('hidden');
+  } else {
+    qImgContainer.classList.add('hidden');
+    qImg.src = '';
+  }
+  
   var oe=document.getElementById('qOptions');
   if(q.type==='pg'&&q.options){
-    var h='';q.options.forEach(function(o,i){ var ltr=String.fromCharCode(65+i); var sel=currentAnswer===ltr; h+='<div class="opt-btn rounded-xl p-4 flex items-start gap-4 '+(sel?'selected':'')+'" onclick="pilihJawaban(\''+ltr+'\')"><div class="w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-bold text-sm '+(sel?'border-kopAccent bg-kopAccent text-kop':'border-border text-muted')+'">'+ltr+'</div><div class="text-light text-base pt-1 flex-1 leading-relaxed">'+o+'</div></div>'; });oe.innerHTML=h;
+    var h='';
+    var optImages = q.optionImages || []; // Ambil array gambar opsi
+    q.options.forEach(function(o,i){ 
+      var ltr=String.fromCharCode(65+i); 
+      var sel=currentAnswer===ltr;
+      var optImgUrl = (optImages[i] && optImages[i].trim() !== '') ? optImages[i] : '';
+      
+      h+='<div class="opt-btn rounded-xl p-4 flex items-start gap-4 '+(sel?'selected':'')+'" onclick="pilihJawaban(\''+ltr+'\')">';
+      h+='<div class="w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-bold text-sm '+(sel?'border-kopAccent bg-kopAccent text-kop':'border-border text-muted')+'">'+ltr+'</div>';
+      h+='<div class="flex-1">';
+      h+='<div class="text-light text-base pt-1 leading-relaxed">'+o+'</div>';
+      if(optImgUrl){
+        h+='<img src="'+optImgUrl+'" class="opt-image" alt="Opsi '+ltr+'">';
+      }
+      h+='</div></div>'; 
+    }); 
+    oe.innerHTML=h;
   }else{ 
     oe.innerHTML='<div class="space-y-4"><div class="p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm flex items-start gap-2"><i class="fas fa-pen-nib mt-1"></i><div><strong>Soal Uraian.</strong> Ketik jawaban Anda dengan jelas.</div></div><textarea class="essay-textarea" id="essayAnswer" placeholder="Ketik jawaban di sini..." oninput="simpanUraian(this.value)">'+currentAnswer+'</textarea></div>'; 
   }
@@ -238,7 +268,7 @@ function jumpQ(i){uState.currentQ=i;renderQ()}
 function pilihJawaban(ltr){ 
   var q = uState.soalList[uState.currentQ]; 
   var qId = q.docId || q.id;
-  uState.jawabanById[qId] = ltr; // Simpan berdasarkan ID Soal Absolut
+  uState.jawabanById[qId] = ltr; 
   renderQ(); 
 }
 
@@ -246,7 +276,7 @@ function simpanUraian(val){
   var q = uState.soalList[uState.currentQ]; 
   var qId = q.docId || q.id;
   if(val.trim()) {
-    uState.jawabanById[qId] = val; // Simpan berdasarkan ID Soal Absolut
+    uState.jawabanById[qId] = val; 
   } else {
     delete uState.jawabanById[qId];
   }
@@ -269,12 +299,11 @@ function doFinish(){
   uState.isSubmitting = true; 
   clearInterval(uState.timerInterval); uState.isSubmitted=true;
 
-  // MAPPING ULANG KE ARRAY SESUAI URUTAN DASHBOARD GURU
   var jawabanPGArray = [];
   var jawabanUrArray = [];
   var skorPerSoalUrArray = [];
-  var soalPGIds = []; // Pengaman: Bukti ID Soal PG berurutan
-  var soalUrIds = []; // Pengaman: Bukti ID Soal Uraian berurutan
+  var soalPGIds = []; 
+  var soalUrIds = []; 
   var pgBenar = 0;
   var pgSalah = 0;
   var urDijawab = 0;
@@ -313,12 +342,10 @@ function doFinish(){
     
     nilaiPG: 0, nilaiUr: 0, nilaiTotal: 0,
     
-    // KIRIM ARRAY SESUAI FORMAT GURU
     jawabanPG: jawabanPGArray, 
     jawabanUr: jawabanUrArray,      
     skorPerSoalUr: skorPerSoalUrArray,
     
-    // PENGGAMAN CROSS-CHECK: Berisi ID soal berurutan agar Guru bisa verifikasi ke akar
     soalPG_Ids: soalPGIds,
     soalUr_Ids: soalUrIds,
     
