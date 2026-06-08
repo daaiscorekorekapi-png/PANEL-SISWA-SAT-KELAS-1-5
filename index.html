@@ -39,7 +39,7 @@ body{font-family:'Source Sans 3',sans-serif;background:#0f1923;color:#e8ecf1;min
 .opt-btn{transition:all .15s;border:2px solid #2a3f5f;cursor:pointer;background:rgba(15,25,35,0.5)}
 .opt-btn:hover{border-color:#c9a84c;background:rgba(201,168,76,0.05)}
 .opt-btn.selected{border-color:#c9a84c;background:rgba(201,168,76,0.15);box-shadow:0 0 15px rgba(201,168,76,0.2)}
-.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:600;animation:si .3s ease;max-width:90%;display:flex;align-items:center;gap:10px;box-shadow:0 10px 25px rgba(0,0,0,0.5)}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:600;animation:si .3s ease;max-width:90%;display:flex;items:center;gap:10px;box-shadow:0 10px 25px rgba(0,0,0,0.5)}
 .toast-success{background:linear-gradient(135deg,#166534,#15803d);color:white;border:1px solid #22c55e}
 .toast-error{background:linear-gradient(135deg,#7f1d1d,#991b1b);color:white;border:1px solid #ef4444}
 .toast-warning{background:linear-gradient(135deg,#78350f,#92400e);color:white;border:1px solid #f59e0b}
@@ -360,7 +360,7 @@ function doLogin(){
 }
 
 /* ========================================================
-   MULAI UJIAN (SORTIR PG DULU, BARU URAIAN)
+   MULAI UJIAN (URUTAN DIKUNCI: PG DULU, KEMUDIAN UR, LALU URUTKAN ID)
    ======================================================== */
 function startExam(){
   var db=getDB(uState.kelas);if(!db){showToast('Database Error','error');return}
@@ -371,12 +371,25 @@ function startExam(){
       var docs=[];snap.forEach(function(d){docs.push(d.data())});
       if(!docs.length){showToast('Belum ada soal untuk mapel ini. Hubungi Guru.','error');return}
 
-      // PERBAIKAN: SORTIR PG DULU, BARU URAIAN (TIDAK MEMPERHATIKAN LEVEL KESULITAN)
+      // --- LOGIKA PENGUNCIAN URUTAN (PENTING) ---
+      // 1. Urutkan berdasarkan ID Unik Soal (Alfabetis) agar Konsisten antar Siswa & Guru
       docs.sort(function(a,b){
-        var ta = a.type === 'pg' ? 0 : 1; // PG = 0, Uraian = 1
+        // Gunakan field 'id' (ID Dokumen) jika ada, atau gunakan hash teks jika perlu
+        var idA = a.id || ""; 
+        var idB = b.id || "";
+        if(idA < idB) return -1;
+        if(idA > idB) return 1;
+        return 0;
+      });
+
+      // 2. Urutkan berdasarkan Tipe (PG dulu, Uraian belakang)
+      // Ini memastikan semua PG keluar dulu, baru soal Uraian
+      docs.sort(function(a,b){
+        var ta = a.type === 'pg' ? 0 : 1; 
         var tb = b.type === 'pg' ? 0 : 1;
         return ta - tb;
       });
+      // ----------------------------------------------
 
       uState.soalList=docs;
       uState.pgIndices=[];uState.urIndices=[];
@@ -556,100 +569,57 @@ function confirmFinish(){
 function closeFinishModal(){document.getElementById('resultPage').classList.add('hidden')}
 
 function doFinish(silentMode){
-  // Cegah double submit
   if(uState.isSubmitted || uState.isSubmitting) return;
-  
-  // Jika silentMode (misal refresh halaman), kita izinkan jalan tanpa loading UI berlebih
   uState.isSubmitting = true; 
-
-  // Tampilkan loading di tombol jika bukan silent mode
   if(!silentMode){
     var btns = document.querySelectorAll('#resultPage button');
     if(btns.length > 1) btns[1].innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> MENGIRIM...';
     else if(document.getElementById('btnFinish')) document.getElementById('btnFinish').innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> MENGIRIM...';
   }
-
   clearInterval(uState.timerInterval);
   uState.isSubmitted=true;
 
-  // --- PERHITUNGAN NILAI (VERSI PERBAIKAN: TIDAK CASE SENSITIVE) ---
+  // --- PERHITUNGAN NILAI (ANTI CASE SENSITIVE) ---
   var nilaiPG=0;
-  var pgBenarCount = 0;
-  
   uState.pgIndices.forEach(function(si){
     var jawab=uState.jawaban[si]||'';
     var kunci=uState.soalList[si].answer||'';
-    
-    // PERBAIKAN: Paksa huruf besar dan hapus spasi sebelum bandingkan
-    // Contoh: jawab='a', kunci='A' -> akan dianggap BENAR
     if(jawab.toString().toUpperCase().trim() === kunci.toString().toUpperCase().trim()) {
       nilaiPG+=uState.bobotPG;
-      pgBenarCount++;
     }
   });
-  
-  // Pastikan nilai PG maksimal 100
   nilaiPG=Math.min(nilaiPG,100);
 
   var nilaiUr=0; 
-  
-  // Nilai Akhir = Rata-rata (PG + Ur) / 2
   var nilaiDB = Math.round((nilaiPG + nilaiUr) / 2);
 
-  // Siapkan array jawaban untuk disimpan ke Database
   var jawabanPGArray=[];
-  uState.pgIndices.forEach(function(si){
-    // Simpan jawaban asli siswa
-    jawabanPGArray.push(uState.jawaban[si]||'');
-  });
-
+  uState.pgIndices.forEach(function(si){jawabanPGArray.push(uState.jawaban[si]||'');});
   var jawabanUrArray=[];
-  uState.urIndices.forEach(function(si){
-    jawabanUrArray.push(uState.jawaban[si]||'');
-  });
+  uState.urIndices.forEach(function(si){jawabanUrArray.push(uState.jawaban[si]||'');});
 
   var docId=uState.kelas+'_'+uState.rombelSiswa+'_'+uState.mapel+'_'+uState.siswaData.nisn;
-
   var payload={
-    kelas: uState.kelas,
-    rombel: uState.rombelSiswa, 
-    mapel: uState.mapel,
-    nisn: String(uState.siswaData.nisn),
-    nama: uState.siswaData.nama,
+    kelas: uState.kelas, rombel: uState.rombelSiswa, mapel: uState.mapel,
+    nisn: String(uState.siswaData.nisn), nama: uState.siswaData.nama,
     npsn: uState.siswaData.npsn || uState.tokenData.npsn,
-    guruNip: uState.tokenData.guruNip,
-    guruNama: uState.tokenData.guruNama,
+    guruNip: uState.tokenData.guruNip, guruNama: uState.tokenData.guruNama,
     sekolah: uState.tokenData.sekolah||'',
-    
-    nilaiPG: nilaiPG,
-    nilaiUr: nilaiUr,
-    nilaiTotal: nilaiDB,
-    
-    pgCount: uState.pgCount,
-    urCount: uState.urCount,
-    bobotPG: uState.bobotPG,
-    bobotUr: uState.bobotUr, 
-    
-    jawabanPG: jawabanPGArray,      
-    jawabanUr: jawabanUrArray,      
-    
-    submittedBy: 'siswa_online', 
-    tokenUsed: uState.tokenData.token,
+    nilaiPG: nilaiPG, nilaiUr: nilaiUr, nilaiTotal: nilaiDB,
+    pgCount: uState.pgCount, urCount: uState.urCount,
+    bobotPG: uState.bobotPG, bobotUr: uState.bobotUr, 
+    jawabanPG: jawabanPGArray, jawabanUr: jawabanUrArray,      
+    submittedBy: 'siswa_online', tokenUsed: uState.tokenData.token,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 
-  if(uState.isOnline){
-    sendToFirebase(payload,docId);
-  }else{
-    saveOffline(payload,docId);
-    showResult(nilaiPG, nilaiUr); 
-  }
+  if(uState.isOnline){sendToFirebase(payload,docId);}
+  else{saveOffline(payload,docId);showResult(nilaiPG, nilaiUr);}
 }
 
 function sendToFirebase(payload,docId){
   var db=getDB(uState.kelas);
   var ref=db.collection('nilai').doc(docId);
-
   ref.set(payload, {merge: true}).then(function(){
     clearOfflineSave(); 
     try{localStorage.removeItem('sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel);}catch(e){}
@@ -697,7 +667,6 @@ function showResult(pg, ur){
   document.getElementById('examPage').classList.add('hidden');
   document.getElementById('cheatOverlay').classList.add('hidden');
   try{if(document.fullscreenElement)document.exitFullscreen();}catch(e){}
-  
   var h='<div class="glass rounded-2xl p-6 md:p-8 text-center result-card relative overflow-hidden">'
     +'<div class="w-20 h-20 rounded-full bg-gradient-to-br from-success/30 to-success/10 border-2 border-success flex items-center justify-center mx-auto mb-4 shadow-lg">'
     +'<i class="fas fa-check-double text-success text-3xl"></i></div>'
@@ -723,7 +692,6 @@ function showResult(pg, ur){
     +'<div class="mt-2 pt-4 border-t border-border text-[10px] text-muted text-center leading-relaxed bg-dark/20 rounded p-2">'
     +'<i class="fas fa-info-circle mr-1 text-kopAccent"></i> Nilai akhir rapor adalah rata-rata dari kedua skor di atas.'
     +'</div></div>';
-    
   document.getElementById('resultContent').innerHTML=h;
   document.getElementById('resultPage').classList.remove('hidden');
 }
