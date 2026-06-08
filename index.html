@@ -190,12 +190,13 @@ function startExam(){
   var db=getDB(uState.kelas);if(!db){showToast('Database Error','error');return}
   showToast('Mengunduh soal...','warning');
   db.collection('questions').where('mapel','==',uState.mapel).where('kelas','==',uState.kelas).get().then(function(snap){
-    var docs=[];snap.forEach(function(d){ var dt = d.data(); dt.docId = d.id; docs.push(dt); }); // Tambahkan docId
+    var docs=[];
+    snap.forEach(function(d){ var dt = d.data(); dt.docId = d.id; docs.push(dt); });
     if(!docs.length){showToast('Belum ada soal untuk mapel ini. Hubungi Guru.','error');return}
 
-    // URUTKAN SESUAI ID DOKUMEN / SOAL (KONSISTEN)
+    // Urutkan sesuai ID Dokumen / Soal
     docs.sort(function(a,b){ var idA = a.docId || ""; var idB = b.docId || ""; if(idA < idB) return -1; if(idA > idB) return 1; return 0; });
-    // PG DULU, BARU URAIAN
+    // PG dulu, baru Uraian
     docs.sort(function(a,b){ var ta = a.type === 'pg' ? 0 : 1; var tb = b.type === 'pg' ? 0 : 1; return ta - tb; });
 
     uState.soalList=docs; uState.pgIndices=[]; uState.urIndices=[];
@@ -237,8 +238,21 @@ function renderQ(){
 function prevQ(){if(uState.currentQ>0){uState.currentQ--;renderQ()}}
 function nextQ(){ if(uState.currentQ<uState.soalList.length-1){uState.currentQ++;renderQ()} else confirmFinish(); }
 function jumpQ(i){uState.currentQ=i;renderQ()}
-function pilihJawaban(ltr){ uState.jawaban[uState.currentQ]=ltr;renderQ(); }
-function simpanUraian(val){ if(val.trim())uState.jawaban[uState.currentQ]=val; else delete uState.jawaban[uState.currentQ]; var dots=document.getElementById('navDots').children; if(dots[uState.currentQ])dots[uState.currentQ].className='w-2.5 h-2.5 rounded-full cursor-pointer transition-all bg-success/60 flex-shrink-0'; var pct=Math.round(Object.keys(uState.jawaban).length/uState.soalList.length*100); var ring=document.getElementById('progressRing'); var ptxt=document.getElementById('progressText'); if(ring)ring.style.strokeDashoffset=97.4-(97.4*pct/100); if(ptxt)ptxt.textContent=pct+'%'; }
+function pilihJawaban(ltr){ uState.jawaban[uState.currentQ]=ltr; renderQ(); }
+
+function simpanUraian(val){ 
+  if(val.trim()) uState.jawaban[uState.currentQ]=val; 
+  else delete uState.jawaban[uState.currentQ]; 
+  
+  // Perbarui titik navigasi dan progress bar secara instan tanpa render ulang seluruh halaman
+  var dots=document.getElementById('navDots').children; 
+  if(dots[uState.currentQ]) dots[uState.currentQ].className='w-2.5 h-2.5 rounded-full cursor-pointer transition-all bg-success/60 flex-shrink-0'; 
+  var pct=Math.round(Object.keys(uState.jawaban).length/uState.soalList.length*100); 
+  var ring=document.getElementById('progressRing'); 
+  var ptxt=document.getElementById('progressText'); 
+  if(ring)ring.style.strokeDashoffset=97.4-(97.4*pct/100); 
+  if(ptxt)ptxt.textContent=pct+'%'; 
+}
 
 function saveProgressLocally(){ if(!uState.siswaData || !uState.mapel) return; try { var progressKey = 'sat_progress_'+uState.siswaData.nisn+'_'+uState.mapel; var progressData = { jawaban: uState.jawaban, currentQ: uState.currentQ, timestamp: Date.now() }; localStorage.setItem(progressKey, JSON.stringify(progressData)); } catch(e){} }
 
@@ -269,19 +283,21 @@ function doFinish(silentMode){
   var nilaiUr=0; var nilaiDB = Math.round((nilaiPG + nilaiUr) / 2);
 
   // =========================================================================
-  // PERBAIKAN UTAMA: Kirim Jawaban PG beserta ID Soalnya (Array of Object)
+  // PERBAIKAN UTAMA: Kirim Jawaban PG & Uraian Menggunakan ID Dokumen Soal (Objek)
   // =========================================================================
-  var jawabanPGArray=[];
+  var jawabanPGObj = {};
   uState.pgIndices.forEach(function(si){
     var soal = uState.soalList[si];
-    jawabanPGArray.push({
-      soalId: soal.docId || soal.id || '', // Menggunakan ID Dokumen Soal
-      jawaban: uState.jawaban[si] || ''
-    });
+    var soalId = soal.docId || soal.id || ('pg_idx_'+si);
+    jawabanPGObj[soalId] = uState.jawaban[si] || '';
   });
   
-  var jawabanUrArray=[];
-  uState.urIndices.forEach(function(si){jawabanUrArray.push(uState.jawaban[si]||'');});
+  var jawabanUrObj = {};
+  uState.urIndices.forEach(function(si){
+    var soal = uState.soalList[si];
+    var soalId = soal.docId || soal.id || ('ur_idx_'+si);
+    jawabanUrObj[soalId] = uState.jawaban[si] || '';
+  });
 
   var docId=uState.kelas+'_'+uState.rombelSiswa+'_'+uState.mapel+'_'+uState.siswaData.nisn;
   var payload={
@@ -293,7 +309,7 @@ function doFinish(silentMode){
     nilaiPG: nilaiPG, nilaiUr: nilaiUr, nilaiTotal: nilaiDB,
     pgCount: uState.pgCount, urCount: uState.urCount,
     bobotPG: uState.bobotPG, bobotUr: uState.bobotUr, 
-    jawabanPG: jawabanPGArray, jawabanUr: jawabanUrArray,      
+    jawabanPG: jawabanPGObj, jawabanUr: jawabanUrObj,      
     submittedBy: 'siswa_online', tokenUsed: uState.tokenData.token,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
